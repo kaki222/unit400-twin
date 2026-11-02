@@ -1,0 +1,20 @@
+{
+ "name": "generic example (round numbers, not plant data)",
+ "jacket_circulation_lph": 2000,
+ "preheat_lph": 1100,
+ "feed_lph": 1000,
+ "h2_nm3h_per_feed_lph": 0.16,
+ "h2_nm3h_per_op_pct": 40,
+ "tic410_sp": 110,
+ "heat_supply_lph_per_op_pct": 135,
+ "sequence": [
+  [1,  {"04FIC411_PV": 2000, "04LIC410_PV": 55, "04E410": 1}, "P-410 on, jacket circulation"],
+  [20, {"04FI413_PV": 2500}, "jacket heat-up"],
+  [10, {"04FI413_PV": 1500}, "reduce heat"],
+  [6,  {"04FI413_PV": 800},  "trim heat"],
+  [3,  {"04FIC400_PV": 700}, "feed in"],
+  [3,  {"04FIC400_PV": 1000, "04FIC402_OP": 3.0}, "feed 1000, H2 on"],
+  [8,  {"04FIC402_OP": 4.0}, "H2 to ratio"],
+  [25, {"04FIC401_PV": 1100}, "feed preheat on"]
+ ]
+}

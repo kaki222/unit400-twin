@@ -1,0 +1,10 @@
+# private - never commit
+twin/unit400_model.py
+twin/basis.json
+twin/reference.json
+data/extracted/
+console/u400_layout.json
+console/snapshots/
+*.pkl
+__pycache__/
+.ipynb_checkpoints/

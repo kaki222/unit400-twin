@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Unit 400 Console</title>
+<style>
+:root{--bg:#c9c9c9;--panel:#e4e4e4;--ink:#111;--line:#555;--fp:#ededed;--hi:#ffd400;--alarm:#d40000;--ok:#0a7d2c;--nav:#1f3864}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.3 "Segoe UI",Arial,sans-serif;display:flex;flex-direction:column;height:100vh}
+#bar{display:flex;gap:8px;align-items:center;padding:6px 10px;background:var(--nav);color:#fff;flex-wrap:wrap}
+#bar b{font-size:15px;margin-right:6px}
+#bar input,#bar select,#bar button{font:inherit;padding:3px 7px;border:1px solid #889;border-radius:3px}
+#bar button{background:#f2f2f2;cursor:pointer}#bar button.on{background:var(--hi)}
+#search{width:190px}
+#clock{margin-left:auto;font-variant-numeric:tabular-nums}
+#main{flex:1;display:flex;min-height:0}
+#gwrap{flex:1;position:relative;overflow:auto}
+svg{display:block;width:100%;height:auto;min-width:900px;background:var(--bg)}
+#side{width:330px;background:var(--panel);border-left:1px solid #999;overflow:auto;padding:8px;display:flex;flex-direction:column;gap:8px}
+#side h3{margin:4px 0;color:var(--nav);font-size:13px}
+.card{background:#fff;border:1px solid #aaa;border-radius:4px;padding:8px}
+#alarmbar{background:#222;color:#fff;padding:4px 10px;display:flex;gap:14px;flex-wrap:wrap;min-height:24px;font-size:12px}
+#alarmbar .a{color:#fff;background:var(--alarm);padding:1px 6px;border-radius:2px}
+#trend{height:200px;border-top:1px solid #999;background:#fff;display:flex}
+#trend canvas{flex:1}
+#tsel{width:330px;padding:6px;font-size:12px;overflow:auto;border-left:1px solid #ccc}
+.fpbox text{font:15px Arial}
+.lbl{font:12px Arial;fill:#666}
+.tagname{font:12px Arial;fill:#666}
+.desc{font:10px Arial;fill:#1f3864}
+.hl{animation:pulse 0.8s ease-in-out 6}
+@keyframes pulse{0%,100%{stroke:var(--hi);stroke-width:6}50%{stroke:#ff6a00;stroke-width:10}}
+.edit [data-id]{cursor:move}
+.clickable{cursor:pointer}
+table.fp{width:100%;border-collapse:collapse}table.fp td{padding:3px 4px;border-bottom:1px solid #eee}
+table.fp td:first-child{color:#555;width:70px}
+table.fp input{width:70px}
+.fpbig{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
+.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:4px 0}
+.row input{width:80px;font:inherit;padding:2px 4px}
+.row button,.row select{font:inherit;padding:2px 8px}
+#taglist{max-height:240px;overflow:auto;font-size:12px}
+#taglist div{padding:2px 4px;cursor:pointer;border-bottom:1px solid #eee}#taglist div:hover{background:#fff6c2}
+#events{font-size:11px;max-height:160px;overflow:auto}
+.muted{color:#666;font-size:11px}
+.bad{fill:#ff00ff}
+</style></head>
+<body>
+<div id="bar">
+ <b>Unit 400 : : Hydrogenation — digital twin console</b>
+ <input id="search" list="tagdl" placeholder="Find tag e.g. 04FIC411" autocomplete="off"><datalist id="tagdl"></datalist>
+ <button id="findbtn">Locate</button>
+ <button id="descbtn" title="Show what each tag is under its name">Descriptions</button>
+ <span>Speed</span><select id="speed"><option>0</option><option selected>1</option><option>2</option><option>5</option><option>10</option><option>30</option></select>
+ <button id="editbtn" title="Drag elements, double-click to rename">Edit layout</button>
+ <button id="savelay" hidden>Save layout</button><button id="resetlay" hidden>Reset layout</button>
+ <span id="clock"></span>
+</div>
+<div id="alarmbar"></div>
+<div id="main">
+ <div id="gwrap"><svg id="g" xmlns="http://www.w3.org/2000/svg"></svg></div>
+ <div id="side">
+  <div class="card" id="fpcard"><h3>Faceplate</h3><div class="muted">Click any controller, valve, pump or value on the graphic – or use Find tag.</div></div>
+  <div class="card"><h3>All tags</h3><input id="filter" placeholder="filter…" style="width:100%;margin-bottom:4px"><div id="taglist"></div></div>
+  <div class="card"><h3>Instructor</h3>
+   <div class="row">04CAT400 % <input id="cat" type="number" value="100"><button id="catb">Set</button></div>
+   <div class="row">Instrument air barg <input id="air" type="number" value="6" step="0.1"><button id="airb">Set</button></div>
+   <div class="row">Snapshot <input id="snap" value="start"><button id="saveb">Save</button><select id="snaps"></select><button id="loadb">Load</button></div>
+  </div>
+  <div class="card"><h3>Events</h3><div id="events"></div></div>
+ </div>
+</div>
+<div id="trend"><canvas id="tc"></canvas><div id="tsel"><b>Trend</b> <span class="muted">(click tags to add/remove, last 60 min)</span><div id="tlist"></div></div></div>
+<script>
+const NS='http://www.w3.org/2000/svg';
+let LAY=null,ST=null,EDIT=false,SHOWDESC=false,SEL=null,TREND=['04TI401','04TI402','04TI404','04TI406','04AT400','04TIC411'];
+const svg=document.getElementById('g');
+const fmt=(v,d=1)=>v===null||v===undefined||Number.isNaN(v)?'NaN':(Math.abs(v)>=1000?v.toFixed(0):v.toFixed(d));
+function el(t,a,p){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);(p||svg).appendChild(e);return e}
+async function api(p,b){const r=await fetch(p,b?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}:{});return r.json()}
+async function cmd(c){const r=await api('/api/cmd',c);if(r.result!=='ok')alert(r.result);poll()}
+
+function draw(){
+ svg.innerHTML='';svg.setAttribute('viewBox',`0 0 ${LAY.width} ${LAY.height}`);
+ el('rect',{x:0,y:0,width:LAY.width,height:LAY.height,fill:'#c9c9c9'});
+ for(const e of LAY.elements){
+  const g=el('g',{'data-id':e.id});
+  if(e.type==='line'){el('polyline',{points:e.pts.map(p=>p.join(',')).join(' '),fill:'none',stroke:'#444','stroke-width':2},g);continue}
+  g.setAttribute('transform',`translate(${e.x},${e.y})`);
+  if(e.type==='vessel'){
+   const r=e.shape==='drum'?50:(e.shape==='column'?6:38);
+   el('rect',{x:0,y:0,width:e.w,height:e.h,rx:Math.min(r,e.w/2),fill:'#d8d8d8',stroke:'#333','stroke-width':2},g);
+   if(e.level){el('rect',{x:e.w-14,y:6,width:8,height:e.h-12,fill:'#fff',stroke:'#666'},g);el('rect',{class:'lvl','data-tag':e.level,x:e.w-14,y:6,width:8,height:0,fill:'#555'},g)}
+   if(e.shape==='column'){for(const yy of [0.2,0.8])el('line',{x1:0,x2:e.w,y1:e.h*yy,y2:e.h*yy,stroke:'#333'},g)}
+   el('text',{x:e.w/2,y:e.shape==='column'?40:24,'text-anchor':'middle',style:'font:16px Arial'},g).textContent=e.label;
+  }else if(e.type==='box'){el('rect',{width:e.w,height:e.h,fill:'#d8d8d8',stroke:'#333'},g);el('text',{x:e.w/2,y:18,'text-anchor':'middle',class:'lbl',style:'fill:#333'},g).textContent=e.label;el('circle',{cx:e.w/2,cy:50,r:9,fill:'none',stroke:'#333'},g)}
+  else if(e.type==='hx'){el('circle',{cx:0,cy:0,r:e.r,fill:'#e2e2e2',stroke:'#333','stroke-width':2},g);el('polyline',{points:`${-e.r*.7},${e.r*.5} ${-e.r*.1},${-e.r*.1} ${e.r*.1},${e.r*.1} ${e.r*.7},${-e.r*.5}`,fill:'none',stroke:'#333','stroke-width':2},g);el('text',{x:e.r+4,y:-e.r+6,class:'lbl',style:'fill:#000'},g).textContent=e.label}
+  else if(e.type==='pump'){g.classList.add('clickable');g.dataset.tag=e.tag;el('circle',{class:'pumpc',cx:0,cy:0,r:15,fill:'#fff',stroke:'#333','stroke-width':2},g);el('text',{x:-16,y:-20,class:'lbl'},g).textContent=e.tag}
+  else if(e.type==='valve'){g.classList.add('clickable');g.dataset.tag=e.tag;el('polygon',{class:'vbody',points:'-14,-10 14,10 14,-10 -14,10',fill:'#fff',stroke:'#333','stroke-width':2},g);if(e.three_way)el('polygon',{points:'-10,24 10,24 0,0',fill:'#fff',stroke:'#333','stroke-width':2},g);el('line',{x1:0,y1:0,x2:0,y2:-18,stroke:'#333'},g);el('path',{d:'M-9,-18 A9,9 0 0 1 9,-18 Z',fill:'#fff',stroke:'#333'},g);el('text',{x:-30,y:-24,class:'lbl'},g).textContent=e.label}
+  else if(e.type==='fp'){g.classList.add('clickable','fpbox');g.dataset.tag=e.tag;
+   el('rect',{width:135,height:58,fill:'#ededed',stroke:'#777'},g);
+   el('text',{x:80,y:-4,class:'tagname'},g).textContent=e.tag;
+   const md=el('text',{x:5,y:18,class:'md',style:'font:bold 16px Arial'},g);
+   for(const [i,k] of ['SP','PV','OP'].entries()){el('text',{x:24,y:16+i*18,style:'font:10px Arial;fill:#666'},g).textContent=k;el('text',{x:128,y:18+i*18,'text-anchor':'end',class:'f'+k},g)}
+   const d=el('text',{x:0,y:72,class:'desc'},g);d.dataset.desc=1;
+  }else if(e.type==='val'){g.classList.add('clickable');g.dataset.tag=e.tag;
+   el('rect',{width:82,height:20,fill:'#f4f4f4',stroke:'#888'},g);el('text',{x:78,y:15,'text-anchor':'end',class:'vv',style:'font:15px Arial'},g);
+   el('text',{x:82,y:-4,'text-anchor':'end',class:'tagname'},g).textContent=e.tag;
+   const d=el('text',{x:0,y:32,class:'desc'},g);d.dataset.desc=1;
+  }else if(e.type==='text'){el('text',{x:0,y:0,style:'font:13px Arial;fill:#444'},g).textContent=e.text}
+  else if(e.type==='button'){g.classList.add('clickable');el('rect',{width:115,height:24,fill:'#eee',stroke:'#555'},g);el('text',{x:57,y:17,'text-anchor':'middle',style:'font:15px Arial'},g).textContent=e.text;g.addEventListener('click',()=>{if(!EDIT&&confirm('Restart Run resets the model to 20 °C. Continue?'))cmd({cmd:e.cmd})})}
+  if(g.dataset.tag){const tt=el('title',{},g);tt.textContent=g.dataset.tag;g.addEventListener('click',ev=>{if(!EDIT)openFP(g.dataset.tag)})}
+ }
+ enableEdit();update();
+}
+
+function update(){
+ if(!ST||!LAY)return;const V=ST.values,L=ST.loops,P=ST.pumps;
+ document.getElementById('clock').textContent=`sim ${(ST.t/60).toFixed(1)} min  ·  x${ST.speed}`;
+ svg.querySelectorAll('[data-tag]').forEach(g=>{
+  const t=g.dataset.tag, desc=ST.desc[t]||'';
+  g.querySelectorAll('[data-desc]').forEach(d=>d.textContent=SHOWDESC?desc.slice(0,38):'');
+  const ti=g.querySelector('title');if(ti)ti.textContent=t+(desc?' – '+desc:'');
+  if(L[t]&&g.classList.contains('fpbox')){const l=L[t];g.querySelector('.md').textContent=l.mode[0];
+   g.querySelector('.fSP').textContent=fmt(l.sp);const pv=g.querySelector('.fPV');pv.textContent=l.bad?'NaN BAD':fmt(l.pv);pv.setAttribute('class','fPV'+(l.bad?' bad':''));g.querySelector('.fOP').textContent=fmt(l.op);
+   g.querySelector('rect').setAttribute('fill',l.si?'#ffd0d0':'#ededed')}
+  const vv=g.querySelector('.vv');if(vv){const x=V[t];vv.textContent=fmt(x,t.startsWith('01')||t.includes('PT')||t.includes('dP')?2:1)}
+  if(P[t]){const c=g.querySelector('.pumpc');c.setAttribute('fill',P[t].running?'#333':'#fff');c.setAttribute('stroke',P[t].tripped?'#d40000':'#333')}
+ });
+ svg.querySelectorAll('.lvl').forEach(r=>{const v=Math.max(0,Math.min(100,V[r.dataset.tag]||0)),h=+r.parentNode.querySelector('rect').getAttribute('height')-12;r.setAttribute('height',h*v/100);r.setAttribute('y',6+h*(1-v/100))});
+ const ab=document.getElementById('alarmbar');ab.innerHTML=ST.alarms.length?ST.alarms.map(a=>`<span class="a">${a}</span>`).join(''):'<span>No active alarms</span>';
+ document.getElementById('events').innerHTML=ST.events.slice().reverse().map(e=>`<div>${(e.t/60).toFixed(1)} min – ${e.kind==='alarm'?'<b style="color:#d40000">':''}${e.text}${e.kind==='alarm'?'</b>':''}</div>`).join('');
+ if(SEL)renderFP(SEL,false);
+}
+
+// ---------------- faceplate
+function openFP(tag){SEL=tag;renderFP(tag,true);locate(tag,false)}
+function renderFP(tag,full){
+ const c=document.getElementById('fpcard'),L=ST.loops[tag],P=ST.pumps[tag],v=ST.values[tag],d=ST.desc[tag]||'';
+ if(!full&&document.activeElement&&c.contains(document.activeElement)){ // keep inputs while typing, refresh numbers only
+  c.querySelectorAll('[data-live]').forEach(x=>{const k=x.dataset.live;x.textContent=L?(k==='pv'&&L.bad?'NaN BAD':fmt(L[k])):fmt(v)});return}
+ let h=`<h3>${tag}</h3><div class="muted">${d}</div>`;
+ if(L){h+=`<table class="fp"><tr><td>Mode</td><td><select id="fmode">${['MAN','AUTO'].concat(L.master?['CAS']:[]).map(m=>`<option ${m===L.mode?'selected':''}>${m}</option>`).join('')}</select> <button id="fmodeb">Set</button>${L.si?' <b style="color:#d40000">SI</b>':''}</td></tr>
+ <tr><td>PV</td><td class="fpbig" data-live="pv">${L.bad?'NaN BAD':fmt(L.pv)}</td></tr><tr><td></td><td class="muted">${L.eu}, range ${L.lo}–${L.hi}</td></tr>
+ <tr><td>SP</td><td><span data-live="sp">${fmt(L.sp)}</span> <input id="fsp" type="number"> <button id="fspb" ${L.mode==='CAS'?'disabled':''}>Set</button></td></tr>
+ <tr><td>OP %</td><td><span data-live="op">${fmt(L.op)}</span> <input id="fop" type="number"> <button id="fopb" ${L.mode!=='MAN'?'disabled':''}>Set</button></td></tr>
+ <tr><td>OP hi lim</td><td>${fmt(L.ophi)} <input id="fhi" type="number"> <button id="fhib">Set</button></td></tr>
+ <tr><td>Tuning</td><td>K <input id="fkc" type="number" step="0.05" value="${L.kc}" style="width:55px"> Ti s <input id="fti" type="number" value="${L.ti}" style="width:55px"> <button id="ftb">Set</button></td></tr>
+ ${L.master?`<tr><td>Master</td><td><a href="#" data-go="${L.master}">${L.master}</a></td></tr>`:''}${L.slave?`<tr><td>Slave</td><td><a href="#" data-go="${L.slave}">${L.slave}</a></td></tr>`:''}</table>`}
+ else if(P){h+=`<div class="fpbig">${P.tripped?'<span style="color:#d40000">TRIPPED</span>':P.running?'RUNNING':'STOPPED'}</div><div class="row">OP: <button id="prun">RUNNING</button><button id="pstop">STOPPED</button></div><div class="muted">A trip resets on STOPPED.</div>`}
+ else h+=`<div class="fpbig" data-live="v">${fmt(v,2)}</div>`;
+ h+=`<div class="row"><button id="flocate">Locate on graphic</button><button id="ftrend">${TREND.includes(tag)?'Remove from':'Add to'} trend</button></div>`;
+ c.innerHTML=h;
+ const q=s=>c.querySelector(s);
+ if(L){q('#fmodeb').onclick=()=>cmd({cmd:'loop',tag,mode:q('#fmode').value});
+  q('#fspb').onclick=()=>q('#fsp').value!==''&&cmd({cmd:'loop',tag,sp:+q('#fsp').value});
+  q('#fopb').onclick=()=>q('#fop').value!==''&&cmd({cmd:'loop',tag,op:+q('#fop').value});
+  q('#fhib').onclick=()=>q('#fhi').value!==''&&cmd({cmd:'loop',tag,ophi:+q('#fhi').value});
+  q('#ftb').onclick=()=>cmd({cmd:'loop',tag,kc:+q('#fkc').value,ti:+q('#fti').value});
+  c.querySelectorAll('[data-go]').forEach(a=>a.onclick=ev=>{ev.preventDefault();openFP(a.dataset.go)})}
+ if(P){q('#prun').onclick=()=>cmd({cmd:'pump',tag,state:'RUNNING'});q('#pstop').onclick=()=>cmd({cmd:'pump',tag,state:'STOPPED'})}
+ q('#flocate').onclick=()=>locate(tag,true);
+ q('#ftrend').onclick=()=>{TREND.includes(tag)?TREND=TREND.filter(x=>x!==tag):TREND.push(tag);renderTlist();renderFP(tag,true)};
+}
+
+// ---------------- locate
+function locate(tag,scroll=true){
+ svg.querySelectorAll('.hlbox').forEach(x=>x.remove());
+ const hits=[...svg.querySelectorAll(`[data-tag="${tag}"]`)];
+ if(!hits.length){if(scroll)alert(tag+' is not on the graphic (see the faceplate panel).');return}
+ for(const g of hits){const b=g.getBBox(),m=g.getCTM?null:null;const tr=g.getAttribute('transform')||'';const r=el('rect',{class:'hlbox hl',x:b.x-8,y:b.y-8,width:b.width+16,height:b.height+16,fill:'none',rx:6},g);}
+ if(scroll){const r=hits[0].getBoundingClientRect(),w=document.getElementById('gwrap');w.scrollBy({left:r.left-w.clientWidth/2,top:r.top-w.clientHeight/2,behavior:'smooth'})}
+ setTimeout(()=>svg.querySelectorAll('.hlbox').forEach(x=>x.remove()),6000);
+}
+function find(){const t=document.getElementById('search').value.trim().toUpperCase();if(!t)return;
+ const all=Object.keys(ST.desc).concat(Object.keys(ST.values));const m=all.find(x=>x.toUpperCase()===t)||all.find(x=>x.toUpperCase().includes(t))||all.find(x=>(ST.desc[x]||'').toUpperCase().includes(t));
+ if(m){openFP(m);locate(m,true)}else alert('No tag matches '+t)}
+
+// ---------------- tag list
+function renderTags(){const f=document.getElementById('filter').value.toUpperCase();const tags=[...new Set(Object.keys(ST.desc).concat(Object.keys(ST.values)))].sort();
+ document.getElementById('taglist').innerHTML=tags.filter(t=>!f||t.toUpperCase().includes(f)||(ST.desc[t]||'').toUpperCase().includes(f)).map(t=>`<div data-t="${t}"><b>${t}</b> <span class="muted">${ST.desc[t]||''}</span></div>`).join('');
+ document.querySelectorAll('#taglist div').forEach(d=>d.onclick=()=>{openFP(d.dataset.t);locate(d.dataset.t,true)});
+ document.getElementById('tagdl').innerHTML=tags.map(t=>`<option value="${t}">${ST.desc[t]||''}</option>`).join('')}
+
+// ---------------- trend
+const COL=['#d40000','#0050c8','#0a7d2c','#b06000','#7a00b0','#008a8a','#c8007a','#555'];
+function renderTlist(){document.getElementById('tlist').innerHTML=TREND.map((t,i)=>`<div style="color:${COL[i%8]};cursor:pointer" data-t="${t}">■ ${t} <span class="muted">${ST&&ST.desc[t]?ST.desc[t].slice(0,40):''}</span></div>`).join('');
+ document.querySelectorAll('#tlist div').forEach(d=>d.onclick=()=>{TREND=TREND.filter(x=>x!==d.dataset.t);renderTlist()})}
+async function drawTrend(){const H=await api('/api/hist');const c=document.getElementById('tc'),ctx=c.getContext('2d');c.width=c.clientWidth;c.height=c.clientHeight;
+ ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);const n=H.t.length;if(n<2)return;const i0=Math.max(0,n-720);const t=H.t.slice(i0);
+ const t0=t[0],t1=t[t.length-1]||t0+1,pad=34;let lo=Infinity,hi=-Infinity;
+ for(const k of TREND){for(const v of (H.v[k]||[]).slice(i0)){if(v!==null){lo=Math.min(lo,v);hi=Math.max(hi,v)}}}
+ if(!isFinite(lo)){lo=0;hi=1}if(hi-lo<1){hi+=0.5;lo-=0.5}
+ ctx.strokeStyle='#ddd';ctx.fillStyle='#555';ctx.font='11px Arial';
+ for(let g=0;g<=4;g++){const y=pad/2+(c.height-pad)*(1-g/4);ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(c.width-6,y);ctx.stroke();ctx.fillText((lo+(hi-lo)*g/4).toFixed(0),2,y+4)}
+ ctx.fillText(t0.toFixed(1)+' min',pad,c.height-3);ctx.fillText(t1.toFixed(1)+' min',c.width-70,c.height-3);
+ TREND.forEach((k,i)=>{const s=(H.v[k]||[]).slice(i0);ctx.strokeStyle=COL[i%8];ctx.lineWidth=1.6;ctx.beginPath();s.forEach((v,j)=>{if(v===null)return;const x=pad+(t[j]-t0)/(t1-t0||1)*(c.width-pad-6),y=pad/2+(c.height-pad)*(1-(v-lo)/(hi-lo));j?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke()})}
+
+// ---------------- layout edit
+function enableEdit(){
+ svg.classList.toggle('edit',EDIT);
+ svg.querySelectorAll('g[data-id]').forEach(g=>{
+  const e=LAY.elements.find(x=>x.id===g.dataset.id);if(!e||e.type==='line')return;
+  g.onmousedown=ev=>{if(!EDIT)return;ev.preventDefault();const pt=svg.createSVGPoint();const m=svg.getScreenCTM().inverse();
+   pt.x=ev.clientX;pt.y=ev.clientY;const p0=pt.matrixTransform(m),x0=e.x,y0=e.y;
+   const mv=ev2=>{pt.x=ev2.clientX;pt.y=ev2.clientY;const p=pt.matrixTransform(m);e.x=Math.round(x0+p.x-p0.x);e.y=Math.round(y0+p.y-p0.y);g.setAttribute('transform',`translate(${e.x},${e.y})`)};
+   const up=()=>{removeEventListener('mousemove',mv);removeEventListener('mouseup',up)};addEventListener('mousemove',mv);addEventListener('mouseup',up)};
+  g.ondblclick=()=>{if(!EDIT)return;const k=e.text!==undefined?'text':(e.label!==undefined?'label':null);if(!k)return;const n=prompt('New label',e[k]);if(n!==null){e[k]=n;draw()}};
+ })}
+
+// ---------------- wiring
+document.getElementById('findbtn').onclick=find;
+document.getElementById('search').addEventListener('keydown',e=>{if(e.key==='Enter')find()});
+document.getElementById('descbtn').onclick=e=>{SHOWDESC=!SHOWDESC;e.target.classList.toggle('on',SHOWDESC);update()};
+document.getElementById('speed').onchange=e=>{const v=+e.target.value;cmd(v===0?{cmd:'pause',value:true}:{cmd:'speed',value:v}).then(()=>v&&cmd({cmd:'pause',value:false}))};
+document.getElementById('editbtn').onclick=e=>{EDIT=!EDIT;e.target.classList.toggle('on',EDIT);document.getElementById('savelay').hidden=!EDIT;document.getElementById('resetlay').hidden=!EDIT;enableEdit()};
+document.getElementById('savelay').onclick=async()=>{await api('/api/layout',LAY);alert('Layout saved on the server (u400_layout.json).')};
+document.getElementById('resetlay').onclick=async()=>{if(confirm('Back to the default layout?')){await api('/api/layout',{reset:true});LAY=await api('/api/layout');draw()}};
+document.getElementById('filter').oninput=renderTags;
+document.getElementById('catb').onclick=()=>cmd({cmd:'cat',value:+document.getElementById('cat').value});
+document.getElementById('airb').onclick=()=>cmd({cmd:'air',value:+document.getElementById('air').value});
+document.getElementById('saveb').onclick=async()=>{await cmd({cmd:'save',name:document.getElementById('snap').value});loadSnaps()};
+document.getElementById('loadb').onclick=()=>{const n=document.getElementById('snaps').value;if(n&&confirm('Load snapshot '+n+'?'))cmd({cmd:'load',name:n})};
+async function loadSnaps(){const s=await api('/api/snapshots');document.getElementById('snaps').innerHTML=s.map(x=>`<option>${x}</option>`).join('')}
+async function poll(){try{ST=await api('/api/state');update()}catch(e){document.getElementById('alarmbar').innerHTML='<span class="a">Console server not reachable</span>'}}
+(async()=>{LAY=await api('/api/layout');await poll();draw();renderTags();renderTlist();loadSnaps();setInterval(poll,1000);setInterval(drawTrend,5000);drawTrend()})();
+</script>
+</body></html>

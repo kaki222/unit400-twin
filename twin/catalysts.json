@@ -1,0 +1,31 @@
+[
+ {
+  "name": "mimic_baseline",
+  "status": "validated",
+  "note": "Model's own constants; reproduced a real reaction run within ~8 C rms on the bed."
+ },
+ {
+  "name": "low_activity_70",
+  "activity_pct": 70,
+  "note": "Same kinetics, 30 % less active sites (e.g. lower metal loading)."
+ },
+ {
+  "name": "late_lightoff_120",
+  "t_start": 120,
+  "t_ideal": 170,
+  "note": "Needs a hotter bed before it lights off."
+ },
+ {
+  "name": "arrhenius_Ea60",
+  "kinetics": "arrhenius",
+  "ea_kj_mol": 60,
+  "note": "Exponential temperature law, Ea 60 kJ/mol, anchored at T_IDEAL."
+ },
+ {
+  "name": "deactivating_kd005",
+  "kd_per_h": 0.05,
+  "t_sinter": 175,
+  "kd_sinter_per_h": 0.2,
+  "note": "Loses ~5 %/h on stream, 4x faster above 175 C hot spot."
+ }
+]
